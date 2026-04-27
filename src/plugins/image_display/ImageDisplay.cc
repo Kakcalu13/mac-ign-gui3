@@ -206,12 +206,25 @@ void ImageDisplay::OnRefresh()
 /////////////////////////////////////////////////
 void ImageDisplay::UpdateFromRgbInt8()
 {
+  const unsigned int w = this->dataPtr->imageMsg.width();
+  const unsigned int h = this->dataPtr->imageMsg.height();
+
+  // Two fixes vs the original:
+  //   1. Use the 5-arg QImage constructor with explicit `w * 3` bytesPerLine.
+  //      The 4-arg form lets Qt round bytesPerLine up to 4-byte alignment,
+  //      while the protobuf buffer is always packed. Mismatch when w*3 is
+  //      not a multiple of 4 produced diagonal-stripe artifacts.
+  //   2. Pass `image.copy()` (deep copy) to SetImage instead of `image`.
+  //      Without the copy, the QImage stores a pointer into the protobuf
+  //      buffer that is still owned by `imageMsg`. The topic-callback
+  //      thread can call OnImageMsg → overwrite imageMsg.data() while Qt
+  //      is mid-uploading the previous QImage to the GPU, producing tile-
+  //      shaped torn-frame patches.
   QImage image(
     reinterpret_cast<const uchar *>(this->dataPtr->imageMsg.data().c_str()),
-    this->dataPtr->imageMsg.width(), this->dataPtr->imageMsg.height(),
-    QImage::Format_RGB888);
+    w, h, static_cast<qsizetype>(w) * 3, QImage::Format_RGB888);
 
-  this->dataPtr->provider->SetImage(image);
+  this->dataPtr->provider->SetImage(image.copy());
   this->newImage();
 }
 
