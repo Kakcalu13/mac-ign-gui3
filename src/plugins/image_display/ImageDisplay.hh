@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <memory>
 #include <QQuickImageProvider>
+#include <mutex>
+
 
 #ifdef _MSC_VER
 #pragma warning(push, 0)
@@ -50,36 +52,35 @@ namespace plugins
 {
   class ImageDisplayPrivate;
 
-  class ImageProvider : public QQuickImageProvider
-  {
-    public: ImageProvider()
-       : QQuickImageProvider(QQuickImageProvider::Image)
+    class ImageProvider : public QQuickImageProvider
     {
-    }
-
-    public: QImage requestImage(const QString &, QSize *,
-        const QSize &) override
-    {
-      if (!this->img.isNull())
+      public: ImageProvider()
+        : QQuickImageProvider(QQuickImageProvider::Image)
       {
-        // Must return a copy
-        QImage copy(this->img);
-        return copy;
       }
 
-      // Placeholder in case we have no image yet
-      QImage i(400, 400, QImage::Format_RGB888);
-      i.fill(QColor(128, 128, 128, 100));
-      return i;
-    }
+      public: QImage requestImage(const QString &, QSize *,
+          const QSize &) override
+      {
+        std::lock_guard<std::mutex> lock(this->mutex);
 
-    public: void SetImage(const QImage &_image)
-    {
-      this->img = _image;
-    }
+        if (!this->img.isNull())
+          return this->img.copy();
 
-    private: QImage img;
-  };
+        QImage i(400, 400, QImage::Format_RGB888);
+        i.fill(QColor(128, 128, 128, 100));
+        return i;
+      }
+
+      public: void SetImage(const QImage &_image)
+      {
+        std::lock_guard<std::mutex> lock(this->mutex);
+        this->img = _image.copy();
+      }
+
+      private: QImage img;
+      private: std::mutex mutex;
+    };
 
   /// \brief Display images coming through an Gazebo transport topic.
   ///
